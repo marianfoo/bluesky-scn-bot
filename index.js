@@ -1,12 +1,11 @@
 // Required modules
 require('dotenv').config();
-const { BskyAgent } = require('@atproto/api');
+const { BskyAgent, RichText } = require('@atproto/api');
 const fs = require('fs');
 const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 
-// For Node.js versions prior to 18.x, you need to install node-fetch
-// Uncomment the following line if you're using Node.js < 18
+// For Node.js versions prior to 18.x, install and uncomment the following line
 // const fetch = require('node-fetch');
 
 // Configuration from environment variables
@@ -86,12 +85,32 @@ const agent = new BskyAgent({
 
           // Create post content with metadata
           const author = item['dc:creator'] || item['creator'] || 'Unknown Author';
-        //   const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleString() : 'Unknown Date';
-          const postContent = `📰 New Blog Post: "${item.title}"\n👤 Author: ${author}\n🔗 Read more: ${item.link}`;
+
+          // Prepare the post content without pubDate
+          const postText = `📰 New Blog Post: "${item.title}"\n👤 Author: ${author}\n🔗 Read more: ${item.link}`;
+
+          // Create a RichText instance
+          const rt = new RichText({ text: postText });
+
+          // Detect facets (links, mentions, hashtags)
+          await rt.detectFacets(agent);
+
+          // Ensure the link is included as a facet
+          // Since the link is included in the text, detectFacets should pick it up
+
+          // Check if the content exceeds the limit
+          const { charactersRemaining } = rt;
+          if (charactersRemaining < 0) {
+            // Truncate the text and re-detect facets
+            rt.setText(rt.text.slice(0, rt.text.length + charactersRemaining - 1) + '…');
+            await rt.detectFacets(agent);
+            console.log('Post content was too long and has been truncated.');
+          }
 
           // Post to Bluesky
           await agent.post({
-            text: postContent,
+            text: rt.text,
+            facets: rt.facets,
             createdAt: new Date().toISOString(),
           });
 
