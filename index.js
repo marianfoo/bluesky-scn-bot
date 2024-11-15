@@ -32,9 +32,18 @@ const agent = new BskyAgent({
     console.log('Logged into Bluesky successfully.');
 
     // Load or initialize the list of posted IDs
-    let postedIds = [];
+    let postedIds = {};
     if (fs.existsSync(POSTED_IDS_FILE)) {
-      postedIds = JSON.parse(fs.readFileSync(POSTED_IDS_FILE, 'utf8'));
+      const data = fs.readFileSync(POSTED_IDS_FILE, 'utf8');
+      postedIds = JSON.parse(data);
+      // If postedIds is an array (from the old format), convert it to an object
+      if (Array.isArray(postedIds)) {
+        const tempPostedIds = {};
+        for (const id of postedIds) {
+          tempPostedIds[id] = null;
+        }
+        postedIds = tempPostedIds;
+      }
     } else {
       fs.writeFileSync(POSTED_IDS_FILE, JSON.stringify(postedIds, null, 2));
     }
@@ -70,7 +79,7 @@ const agent = new BskyAgent({
           const id = item.guid || item.link;
 
           // Skip if already posted
-          if (postedIds.includes(id)) {
+          if (postedIds.hasOwnProperty(id)) {
             continue;
           }
 
@@ -95,9 +104,6 @@ const agent = new BskyAgent({
           // Detect facets (links, mentions, hashtags)
           await rt.detectFacets(agent);
 
-          // Ensure the link is included as a facet
-          // Since the link is included in the text, detectFacets should pick it up
-
           // Check if the content exceeds the limit
           const { charactersRemaining } = rt;
           if (charactersRemaining < 0) {
@@ -108,7 +114,7 @@ const agent = new BskyAgent({
           }
 
           // Post to Bluesky
-          await agent.post({
+          const postResponse = await agent.post({
             text: rt.text,
             facets: rt.facets,
             createdAt: new Date().toISOString(),
@@ -118,7 +124,12 @@ const agent = new BskyAgent({
 
           // Update last post time and posted IDs
           lastPostTime = Date.now();
-          postedIds.push(id);
+
+          // Save the Bluesky post ID (URI)
+          const blueskyPostId = postResponse.uri;
+
+          // Update postedIds with the mapping
+          postedIds[id] = blueskyPostId;
           fs.writeFileSync(POSTED_IDS_FILE, JSON.stringify(postedIds, null, 2));
         }
       } catch (error) {
